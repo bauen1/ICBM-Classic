@@ -10,6 +10,10 @@ buildscript {
             name = "sonatype"
             url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
+        maven {
+            name = "OpenComputers"
+            url = "http://maven.cil.li"
+        }
     }
     dependencies {
         classpath 'net.minecraftforge.gradle:ForgeGradle:2.3-SNAPSHOT'
@@ -35,6 +39,7 @@ apply from: 'https://raw.githubusercontent.com/BuiltBrokenModding/BuiltBrokenScr
 
 dependencies 
 {
+    deobfCompile "li.cil.oc:OpenComputers:MC1.12.2-1.7.+"
     testCompile 'junit:junit:4.11'
 }
 
