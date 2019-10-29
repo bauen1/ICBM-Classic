@@ -1,5 +1,11 @@
 package icbm.classic.content.machines.emptower;
 
+import li.cil.oc.api.Network;
+import li.cil.oc.api.machine.Arguments;
+import li.cil.oc.api.machine.Callback;
+import li.cil.oc.api.machine.Context;
+import li.cil.oc.api.network.*;
+
 import icbm.classic.api.tile.multiblock.IMultiTile;
 import icbm.classic.api.tile.multiblock.IMultiTileHost;
 import icbm.classic.client.ICBMSounds;
@@ -23,7 +29,7 @@ import net.minecraft.util.math.BlockPos;
 import java.util.ArrayList;
 import java.util.List;
 
-public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, IPacketIDReceiver, IGuiTile, IInventoryProvider<ExternalInventory>
+public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, IPacketIDReceiver, IGuiTile, IInventoryProvider<ExternalInventory>, ManagedEnvironment
 {
     // The maximum possible radius for the EMP to strike
     public static final int MAX_RADIUS = 150;
@@ -49,6 +55,15 @@ public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, 
     private boolean _destroyingStructure = false;
 
     private ExternalInventory inventory;
+
+
+    public ComponentConnector node;
+
+    public TileEMPTower() {
+        super();
+
+        node = Network.newNode(this, Visibility.Network).withComponent("emp_tower").withConnector(32).create();
+    }
 
     @Override
     public ExternalInventory getInventory()
@@ -92,7 +107,32 @@ public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, 
                 rotation = 0;
             }
         }
+
+        if (node() != null && node().network() == null) {
+            Network.joinOrCreateNetwork(this);
+        }
     }
+
+    @Override
+    public boolean canUpdate() {
+        return true;
+    }
+
+    @Override
+    public void onMessage(Message arg0) {
+
+    }
+
+    @Override
+    public void onConnect(Node arg0) {}
+
+    @Override
+    public Node node() {
+        return node;
+    }
+
+    @Override
+    public void onDisconnect(Node arg0) {}
 
     public float getChargePercentage()
     {
@@ -152,6 +192,15 @@ public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, 
 
         this.empRadius = par1NBTTagCompound.getInteger("empRadius");
         this.empMode = par1NBTTagCompound.getByte("empMode");
+
+        if (node() != null && node().host() == this) {
+            node().load(par1NBTTagCompound.getCompoundTag("oc:node"));
+        }
+    }
+
+    @Override
+    public void load(NBTTagCompound v) {
+        this.readFromNBT(v);
     }
 
     /** Writes a tile entity to NBT. */
@@ -160,7 +209,35 @@ public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, 
     {
         par1NBTTagCompound.setInteger("empRadius", this.empRadius);
         par1NBTTagCompound.setByte("empMode", this.empMode);
+
+        if (node() != null && node().host() == this) {
+            final NBTTagCompound nodeNbt = new NBTTagCompound();
+            node.save(nodeNbt);
+            par1NBTTagCompound.setTag("oc:node", nodeNbt);
+        }
+
         return super.writeToNBT(par1NBTTagCompound);
+    }
+
+    @Override
+    public void save(NBTTagCompound v) {
+        this.writeToNBT(v);
+    }
+
+    @Override
+    public void onChunkUnload() {
+        super.onChunkUnload();
+        if (node != null) {
+            node.remove();
+        }
+    }
+
+    @Override
+    public void invalidate() {
+        super.invalidate();
+        if (node != null) {
+            node.remove();
+        }
     }
 
     //@Callback(limit = 1)
@@ -282,5 +359,78 @@ public class TileEMPTower extends TilePoweredMachine implements IMultiTileHost, 
     public Object getClientGuiElement(int ID, EntityPlayer player)
     {
         return new GuiEMPTower(player, this);
+    }
+
+    @Callback(doc = "function():boolean; Fires the EMP Tower", direct = true)
+    public Object[] fire(Context context, Arguments args) {
+        return new Object[] { this.fire() };
+    }
+
+    @Callback(doc = "function():boolean; Checks if the EMP can fire", direct = true)
+    public Object[] isReady(Context context, Arguments args) {
+        return new Object[] { this.isReady() };
+    }
+
+    @Callback(doc = "function():integer; Returns the stored energy", direct = true)
+    public Object[] getStoredEnergy(Context context, Arguments args) {
+        return new Object[] { this.getEnergy() };
+    }
+
+    @Callback(doc = "function():integer; Returns the maximum stored energy", direct = true)
+    public Object[] getMaxEnergy(Context context, Arguments args) {
+        return new Object[] { this.getEnergyBufferSize() };
+    }
+
+    @Callback(doc = "function(mode:string):boolean; Sets the fire mode (valid for mode: 'all', 'missile', 'electricity')", direct = true)
+    public Object[] setFireMode(Context context, Arguments args) {
+        if (args.count() == 0) {
+            return new Object[] { false, "missing args" };
+        }
+
+        String mode = args.checkString(0);
+
+        if (mode == "all") {
+            this.empMode = 0;
+        } else if (mode == "missile") {
+            this.empMode = 1;
+        } else if (mode == "electricity") {
+            this.empMode = 2;
+        } else {
+            return new Object[] { false, "invalid argument" };
+        }
+
+        return new Object[] { true };
+    }
+
+    @Callback(doc = "function():string; returns the current fire mode ('all', 'missile', 'electricity')", direct = true)
+    public Object[] getFireMode(Context context, Arguments args) {
+        switch (this.empMode) {
+            case 0:
+                return new Object[] { "all" };
+            case 1:
+                return new Object[] { "missile" };
+            case 2:
+                return new Object[] { "electricity" };
+            default:
+                return new Object[] { "Invalid" };
+        }
+    }
+
+    @Callback(doc = "function(radius:integer):boolean; Sets the EMP effect radius", direct = true)
+    public Object[] setRadius(Context context, Arguments args) {
+        int newRadius = args.checkInteger(0);
+
+        if ((newRadius < 0) || (newRadius > MAX_RADIUS)) {
+            return new Object[] { false, "Invalid radius (has to be between [0 - " + MAX_RADIUS + "])" };
+        }
+
+        this.empRadius = newRadius;
+
+        return new Object[] { true };
+    }
+
+    @Callback(doc = "function():integer; returns the current EMP effect radius", direct = true)
+    public Object[] getRadius(Context context, Arguments args) {
+        return new Object[] { this.empRadius };
     }
 }
